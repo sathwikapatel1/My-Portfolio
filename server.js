@@ -1,57 +1,59 @@
-// server.js
+require("dotenv").config();
 const express = require("express");
-const bodyParser = require("body-parser");
 const mysql = require("mysql");
-const cors = require("cors");
+const path = require("path");
 
 const app = express();
-app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// ✅ MySQL connection pool using environment variables
-const pool = mysql.createPool({
-  connectionLimit: 10,
-  host: process.env.DB_HOST,     // e.g. "aws.connect.psdb.cloud"
-  user: process.env.DB_USER,     // e.g. "username"
-  password: process.env.DB_PASS, // e.g. "password"
-  database: process.env.DB_NAME, // e.g. "portfolio"
-  port: process.env.DB_PORT || 3306, // optional, default MySQL port
-  ssl: {
-    rejectUnauthorized: true     // needed for some cloud DBs like PlanetScale
-  }
+// Serve static files correctly (public folder)
+app.use(express.static(__dirname));
+app.use('/certificates', express.static(path.join(__dirname, 'certificates')));
+
+
+// Database Connection
+const db = mysql.createConnection({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
 });
 
-// ✅ Test DB connection on startup
-pool.getConnection((err, conn) => {
-  if (err) {
-    console.error("❌ Database connection failed:", err);
-  } else {
-    console.log("✅ Database connected successfully!");
-    conn.release();
-  }
-});
-
-// ✅ Contact form route
-app.post("/contact", (req, res) => {
-  const { name, email, subject, message } = req.body;
-
-  if (!name || !email || !message) {
-    return res.status(400).json({ error: "Name, Email, and Message are required" });
-  }
-
-  const sql = "INSERT INTO contacts (name, email, subject, message) VALUES (?, ?, ?, ?)";
-  pool.query(sql, [name, email, subject, message], (err, result) => {
+db.connect((err) => {
     if (err) {
-      console.error("❌ DB error on /contact:", err);
-      return res.status(500).json({ error: "Database error" });
+        console.error("Database connection failed:", err);
+        return;
     }
-    console.log("✅ New contact saved:", { name, email, subject });
-    res.json({ success: true, message: "Message sent successfully!" });
-  });
+    console.log("Connected to MySQL Database");
 });
 
-// ✅ Render requires listening on process.env.PORT
-const PORT = process.env.PORT || 3000;
+// Serve portfolio.html on the root URL
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "portfolio.html"));
+});
+
+// Handle Contact Form Submission
+app.post("/contact", (req, res) => {
+    const { name, email, subject, message } = req.body;
+
+    if (!name || !email || !subject || !message) {
+        return res.status(400).send("All fields are required!");
+    }
+
+    const sql = "INSERT INTO contacts (name, email, subject, message) VALUES (?, ?, ?, ?)";
+    db.query(sql, [name, email, subject, message], (err, result) => {
+        if (err) {
+            console.error("Error inserting data:", err);
+            res.status(500).send("Database error");
+        } else {
+            res.status(200).send("Message received successfully!");
+        }
+    });
+});
+
+// Start Server
+const PORT = process.env.port || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`Server running on http://localhost:${PORT}`);
 });
